@@ -64,7 +64,7 @@ vim.keymap.set("n", "<F5>", function()
 cd %q
 clear
 echo '▶️  Building %s...'
-g++ -std=c++20 -O0 -g %q -o %q
+g++ -std=c++20 -O0 -g *.cpp -o main
 ret=$?
 if [ $ret -ne 0 ]; then
   echo '❌ Build failed (exit '$ret')'
@@ -73,7 +73,7 @@ fi
 clear
 echo '🚀 Running:'
 echo '=============='
-exec %q
+exec ./main
 ]],
       dir,
       name,
