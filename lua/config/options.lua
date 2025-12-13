@@ -1,5 +1,10 @@
 -- Options are automatically loaded before lazy.nvim startup
 -- Default options that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/options.lua
 -- Add any additional options here
--- -- 默认开启自动换行
+-- 这是你已经有的 Leader 键设置
+vim.g.mapleader = " "
+vim.g.maplocalleader = "\\"
+
+-- 🔥 关键：添加这个选项，让 LazyVim 停止检查！
+vim.g.lazyvim_leader_check = false
 vim.opt.wrap = true

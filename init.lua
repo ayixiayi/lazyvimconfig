@@ -1,3 +1,5 @@
--- bootstrap lazy.nvim, LazyVim and your plugins
+vim.g.mapleader = vim.g.mapleader or " "
+vim.g.maplocalleader = vim.g.maplocalleader or "\\"
+
+-- 2. 加载 LazyVim 的其他配置
 require("config.lazy")
-vim.g.python3_host_prog = "/opt/anaconda3/bin/python"

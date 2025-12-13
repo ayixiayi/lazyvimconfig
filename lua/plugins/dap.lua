@@ -66,14 +66,21 @@ return {
           name = "Launch (C++20)",
           type = "codelldb",
           request = "launch",
+
           program = function()
             compile_current()
             local exe = vim.fn.expand("%:p:r")
             return vim.fn.filereadable(exe) == 1 and exe
               or vim.fn.input("Path to executable: ", vim.fn.getcwd() .. "/", "file")
           end,
+
           cwd = "${workspaceFolder}",
           stopOnEntry = false,
+
+          -- 🔴 关键三行
+          console = "integratedTerminal",
+          terminal = "integrated",
+          runInTerminal = true,
         },
       }
       dap.configurations.c = dap.configurations.cpp
