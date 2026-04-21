@@ -1,10 +1,4 @@
 -- ============================================================
--- 基础设置
--- ============================================================
-vim.g.mapleader = " "
-vim.g.maplocalleader = ","
-
--- ============================================================
 -- <leader>h：回到首页（Snacks Dashboard，你验证过可用的版本）
 -- ============================================================
 vim.keymap.set("n", "<leader>h", function()
@@ -26,70 +20,24 @@ vim.keymap.set("n", "<leader>h", function()
 end, { desc = "Home Dashboard (Snacks)" })
 
 -- ============================================================
--- Run Panel：全局唯一 buffer + window
+-- toggleterm: F5 编译+运行 / F6 仅运行 / F7 input.txt 重定向
 -- ============================================================
-local run_buf
-local run_win
+local Terminal = require("toggleterm.terminal").Terminal
+local run_term
 
-local function show_output(lines)
-  -- buffer：只创建一次
-  if not run_buf or not vim.api.nvim_buf_is_valid(run_buf) then
-    run_buf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(run_buf, "[Run]")
-    vim.bo[run_buf].buftype = "nofile"
-    vim.bo[run_buf].swapfile = false
-    vim.bo[run_buf].modifiable = true
+local function run_in_term(cmd, dir)
+  if run_term then
+    run_term:shutdown()
   end
-
-  -- 写内容
-  vim.bo[run_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(run_buf, 0, -1, false, lines)
-  vim.bo[run_buf].modifiable = false
-
-  -- window：存在就复用
-  if run_win and vim.api.nvim_win_is_valid(run_win) then
-    vim.api.nvim_win_set_buf(run_win, run_buf)
-    return
-  end
-
-  -- 否则只 split 一次
-  vim.cmd("botright split")
-  vim.cmd("resize 15")
-  run_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(run_win, run_buf)
+  run_term = Terminal:new({
+    cmd = "bash -lc " .. vim.fn.shellescape("cd " .. dir .. " && " .. cmd),
+    direction = "horizontal",
+    size = 15,
+    close_on_exit = false,
+  })
+  run_term:toggle()
 end
 
--- ============================================================
--- 核心：用 nvim 0.11 的 vim.system 跑程序（无 terminal）
--- ============================================================
-local function run_system(cmd, cwd)
-  show_output({ "[Run]", "" })
-
-  vim.system(cmd, { cwd = cwd, text = true }, function(res)
-    local out = {}
-
-    if res.stdout and res.stdout ~= "" then
-      vim.list_extend(out, vim.split(res.stdout, "\n", { trimempty = true }))
-    end
-
-    if res.stderr and res.stderr ~= "" then
-      table.insert(out, "")
-      table.insert(out, "[stderr]")
-      vim.list_extend(out, vim.split(res.stderr, "\n", { trimempty = true }))
-    end
-
-    table.insert(out, "")
-    table.insert(out, "[Process exited " .. res.code .. "]")
-
-    vim.schedule(function()
-      show_output(out)
-    end)
-  end)
-end
-
--- ============================================================
--- F5：C / C++ / Python 编译 + 运行
--- ============================================================
 vim.keymap.set("n", "<F5>", function()
   local file = vim.fn.expand("%:p")
   local dir = vim.fn.expand("%:p:h")
@@ -97,36 +45,81 @@ vim.keymap.set("n", "<F5>", function()
 
   vim.cmd("w")
 
+  local cmd
   if ext == "cpp" then
-    run_system({ "bash", "-lc", "g++ -std=c++20 -O0 -g *.cpp -o main && ./main" }, dir)
+    cmd = "g++ -std=c++20 -O0 -g *.cpp -o main && ./main"
   elseif ext == "c" then
-    run_system({ "bash", "-lc", string.format("gcc -std=c11 -O0 -g %q -o main && ./main", file) }, dir)
+    cmd = string.format("gcc -std=c11 -O0 -g %q -o main && ./main", file)
   elseif ext == "py" then
-    run_system({ "python3", file }, dir)
+    cmd = string.format("python3 %q", file)
   else
     vim.notify("不支持的文件类型: " .. ext, vim.log.levels.ERROR)
+    return
   end
-end, { desc = "Build & Run (vim.system)" })
 
--- ============================================================
--- F6：仅运行（假设已有 ./main）
--- ============================================================
+  run_in_term(cmd, dir)
+end, { desc = "Build & Run" })
+
 vim.keymap.set("n", "<F6>", function()
-  local dir = vim.fn.expand("%:p:h")
-  run_system({ "bash", "-lc", "[ -x ./main ] && ./main || echo 'No executable ./main'" }, dir)
+  run_in_term("[ -x ./main ] && ./main || echo 'No executable ./main'", vim.fn.expand("%:p:h"))
 end, { desc = "Run only" })
 
--- ============================================================
--- F7：input.txt 重定向
--- ============================================================
 vim.keymap.set("n", "<F7>", function()
   local dir = vim.fn.expand("%:p:h")
-  run_system({ "bash", "-lc", "[ -f input.txt ] || touch input.txt; ./main < input.txt" }, dir)
+  run_in_term("[ -f input.txt ] || touch input.txt; ./main < input.txt", dir)
 end, { desc = "Run < input.txt" })
+
+-- ============================================================
+-- 窗口操作: <leader>w 恢复为 <C-w> 代理 (LazyVim 默认行为)
+-- ============================================================
+vim.keymap.set("n", "<leader>w", "<C-w>", { desc = "Windows", remap = true })
+
+-- ============================================================
+-- 窗口大小平滑调整 — 进入 resize 模式后用 h/j/k/l 连续调整
+-- <leader>wr 进入模式, 按 h/l 调宽度, j/k 调高度, q/Esc 退出
+-- 解决 WSL+WezTerm 下 Ctrl+Arrow 不能 key repeat 的问题
+-- ============================================================
+local resize_mode = false
+local resize_step = 3
+
+local function exit_resize_mode()
+  if not resize_mode then
+    return
+  end
+  resize_mode = false
+  vim.keymap.del("n", "l", { buffer = 0 })
+  vim.keymap.del("n", "h", { buffer = 0 })
+  vim.keymap.del("n", "k", { buffer = 0 })
+  vim.keymap.del("n", "j", { buffer = 0 })
+  vim.keymap.del("n", "q", { buffer = 0 })
+  vim.keymap.del("n", "<Esc>", { buffer = 0 })
+  vim.notify("Resize mode OFF", vim.log.levels.INFO)
+end
+
+local function enter_resize_mode()
+  if resize_mode then
+    exit_resize_mode()
+    return
+  end
+  resize_mode = true
+  local opts = { buffer = 0, nowait = true }
+  vim.keymap.set("n", "l", function() vim.cmd("vertical resize +" .. resize_step) end, opts)
+  vim.keymap.set("n", "h", function() vim.cmd("vertical resize -" .. resize_step) end, opts)
+  vim.keymap.set("n", "k", function() vim.cmd("resize +" .. resize_step) end, opts)
+  vim.keymap.set("n", "j", function() vim.cmd("resize -" .. resize_step) end, opts)
+  vim.keymap.set("n", "q", exit_resize_mode, opts)
+  vim.keymap.set("n", "<Esc>", exit_resize_mode, opts)
+  vim.notify("Resize mode ON — h/j/k/l to resize, q/Esc to quit", vim.log.levels.INFO)
+end
+
+vim.keymap.set("n", "<leader>wr", enter_resize_mode, { desc = "Resize Mode (h/j/k/l)" })
 
 -- ============================================================
 -- DAP（保持你原来的功能）
 -- ============================================================
+-- <C-a> 全选（覆盖原生数字递增，用 g<C-a> 仍可递增）
+vim.keymap.set("n", "<C-a>", "ggVG", { desc = "Select All" })
+
 local ok_dap, dap = pcall(require, "dap")
 if ok_dap then
   vim.keymap.set("n", "<F9>", dap.continue, { desc = "Debug Continue" })
@@ -135,3 +128,11 @@ if ok_dap then
   vim.keymap.set("n", "<F11>", dap.step_into, { desc = "Step Into" })
   vim.keymap.set("n", "<F12>", dap.step_out, { desc = "Step Out" })
 end
+
+-- ============================================================
+-- Neovim 0.12 内置工具
+-- ============================================================
+vim.keymap.set("n", "<leader>uu", function()
+  vim.cmd("packadd nvim.undotree")
+  vim.cmd("Undotree")
+end, { desc = "Undotree (built-in)" })

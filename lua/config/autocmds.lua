@@ -16,14 +16,30 @@ vim.api.nvim_create_autocmd("LspAttach", {
     local bt = vim.bo[buf].buftype
     local name = vim.api.nvim_buf_get_name(buf)
 
-    -- terminal / term:// buffer，一律踢掉 LSP
     if bt == "terminal" or name:match("^term://") then
-      local client = vim.lsp.get_client_by_id(args.data.client_id)
-      if client then
-        vim.schedule(function()
-          client.stop()
-        end)
-      end
+      vim.schedule(function()
+        vim.lsp.buf_detach_client(buf, args.data.client_id)
+      end)
+    end
+  end,
+})
+
+-- =======================================================
+-- 🔥 自动清除 Windows 换行符 (^M)
+-- =======================================================
+vim.api.nvim_create_autocmd({ "BufWritePre" }, {
+  pattern = { "*" },
+  callback = function()
+    -- 如果文件是可修改的
+    if not vim.bo.binary and vim.bo.modifiable then
+      -- 1. 保存当前光标位置 (防止替换后光标乱跳)
+      local view = vim.fn.winsaveview()
+      -- 2. 强行把文件格式设为 unix (LF)
+      vim.bo.fileformat = "unix"
+      -- 3. 搜索并替换掉所有的 \r (即 ^M)，silent! 使得找不到时也不报错
+      vim.cmd("silent! %s/\\r//ge")
+      -- 4. 恢复光标位置
+      vim.fn.winrestview(view)
     end
   end,
 })
